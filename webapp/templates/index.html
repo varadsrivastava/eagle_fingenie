@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinGenie - Your AI Financial Assistant</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .chat-container {
+            height: calc(100vh - 200px);
+        }
+        .message {
+            max-width: 80%;
+            margin: 10px;
+            padding: 10px 15px;
+            border-radius: 15px;
+            white-space: pre-wrap;
+        }
+        .user-message {
+            background-color: #e3f2fd;
+            margin-left: auto;
+        }
+        .bot-message {
+            background-color: #f5f5f5;
+            margin-right: auto;
+        }
+        .status-message {
+            background-color: #fff3cd;
+            margin: 10px auto;
+            font-size: 0.9em;
+            text-align: center;
+            opacity: 0.8;
+        }
+        .error-message {
+            background-color: #f8d7da;
+            margin: 10px auto;
+            color: #721c24;
+        }
+        .agent-label {
+            font-size: 0.8em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .customer-chatbot { background-color: #e8f5e9; }
+        .financial-advisor { background-color: #e3f2fd; }
+        .boss-manager { background-color: #fff3e0; }
+        .system { background-color: #f3e5f5; }
+        .typing-indicator {
+            display: none;
+            margin: 10px;
+            padding: 10px 15px;
+        }
+        .typing-indicator.active {
+            display: flex;
+        }
+        .dot-typing {
+            margin-left: 4px;
+            animation: dot-typing 1.5s infinite linear;
+            display: inline-block;
+        }
+        @keyframes dot-typing {
+            0%, 25% { content: '.'; }
+            26%, 50% { content: '..'; }
+            51%, 75% { content: '...'; }
+            76%, 100% { content: ''; }
+        }
+        .input-prompt-message {
+            background-color: #e8eaf6;
+            margin: 10px auto;
+            font-size: 0.9em;
+            font-style: italic;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-blue-600">FinGenie</h1>
+            <p class="text-gray-600">Your AI Financial Assistant</p>
+        </header>
+
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <div id="chat-container" class="chat-container overflow-y-auto mb-4">
+                <!-- Messages will be added here -->
+            </div>
+
+            <div class="typing-indicator text-gray-500">
+                <span class="mr-2">FinGenie is thinking</span>
+                <div class="dot-typing"></div>
+            </div>
+
+            <div class="flex gap-2">
+                <input type="text" id="user-input" 
+                    class="flex-1 p-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
+                    placeholder="Type your message here..."
+                    onkeypress="if(event.key === 'Enter') sendMessage()">
+                <button onclick="sendMessage()" 
+                    class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 focus:outline-none">
+                    Send
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const userInput = document.getElementById('user-input');
+        const typingIndicator = document.querySelector('.typing-indicator');
+        let isProcessing = false;
+        let ws = null;
+
+        function addMessage(message, type = 'bot', agent = null) {
+            const messageDiv = document.createElement('div');
+            
+            if (type === 'user') {
+                messageDiv.className = 'message user-message';
+                messageDiv.textContent = message;
+            } else if (type === 'status') {
+                messageDiv.className = 'message status-message';
+                messageDiv.textContent = message;
+            } else if (type === 'error') {
+                messageDiv.className = 'message error-message';
+                messageDiv.textContent = message;
+            } else if (type === 'input_prompt') {
+                messageDiv.className = 'message input-prompt-message';
+                messageDiv.textContent = message;
+            } else {
+                messageDiv.className = `message bot-message ${agent ? agent.toLowerCase() : ''}`;
+                if (agent) {
+                    const agentLabel = document.createElement('div');
+                    agentLabel.className = 'agent-label';
+                    agentLabel.textContent = agent.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    messageDiv.appendChild(agentLabel);
+                }
+                const content = document.createElement('div');
+                content.textContent = message;
+                messageDiv.appendChild(content);
+            }
+            
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function showTypingIndicator() {
+            typingIndicator.classList.add('active');
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function hideTypingIndicator() {
+            typingIndicator.classList.remove('active');
+        }
+
+        function connectWebSocket() {
+            ws = new WebSocket('ws://localhost:8000/ws/chat');
+            
+            ws.onopen = function() {
+                console.log('WebSocket connected');
+                userInput.disabled = false;
+            };
+            
+            ws.onmessage = function(event) {
+                hideTypingIndicator();
+                const data = JSON.parse(event.data);
+                console.log('Received message:', data);  // Debug log
+                
+                if (data.type === 'bot') {
+                    console.log('Adding bot message:', data.content);  // Debug log
+                    addMessage(data.content, 'bot', data.agent);
+                } else if (data.type === 'status') {
+                    console.log('Adding status message:', data.content);  // Debug log
+                    addMessage(data.content, 'status');
+                } else if (data.type === 'error') {
+                    console.log('Adding error message:', data.content);  // Debug log
+                    addMessage(data.content, 'error');
+                } else if (data.type === 'input_prompt') {
+                    console.log('Adding input prompt:', data.content);  // Debug log
+                    addMessage(data.content, 'input_prompt');
+                }
+                
+                userInput.disabled = false;
+                userInput.focus();
+            };
+            
+            ws.onclose = function() {
+                console.log('WebSocket disconnected');
+                userInput.disabled = true;
+                addMessage('Connection lost. Please refresh the page.', 'error');
+            };
+        }
+
+        async function sendMessage() {
+            if (!ws || ws.readyState !== WebSocket.OPEN || isProcessing || !userInput.value.trim()) return;
+            
+            isProcessing = true;
+            const message = userInput.value.trim();
+            userInput.value = '';
+            userInput.disabled = true;
+
+            addMessage(message, 'user');
+            showTypingIndicator();
+
+            ws.send(message);
+            
+            isProcessing = false;
+        }
+
+        // Connect WebSocket when page loads
+        connectWebSocket();
+    </script>
+</body>
+</html> 
